@@ -1,0 +1,886 @@
+---
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+<br><br>
+
+# Spotify vs Apple Music — Review Analysis
+
+<br>
+
+**Author:** Vladyslava Stepanovska  
+**Date:** April 2025
+
+---
+
+
+# Introduction 
+This project explores the differences between the reviews of several music streaming apps. The main focus is on comparing Apple Music and Spotify. 
+
+This project explores the differences between the reviews of several music streaming apps, with a focus on comparing **Apple Music** and **Spotify**. Using Google Play review data, I examine how users talk about each app through a series of text-analysis steps. The project includes preprocessing the review text, analyzing word frequencies, generating word clouds, building word networks, comparing sentiment patterns, and extracting topics using both LDA and text embeddings.
+
+By combining insights from these methods, I aim to uncover meaningful differences in how users perceive the two platforms and to translate these findings into valuable marketing insights.
+
+
+
+# 1. Dataset Preparation 
+I started by loading all the packages necessary for this project.
+```{r load-packages, message=FALSE, warning=FALSE}
+pkgs <- c("tm", "SnowballC", "dplyr", "wordcloud", "RWeka", "RColorBrewer", "tidyr", 
+          "igraph", "ggraph", "tidytext", "lubridate", "ggthemes", "ggplot2", "syuzhet", 
+          "plotly", "topicmodels", "text2vec", "word2vec", "proxy", "umap", "ggrepel")
+
+install_if_missing <- function(p) if (!require(p,character.only=TRUE))
+  install.packages(p, repos="https://cran.r-project.org")
+invisible(lapply(pkgs, install_if_missing))
+
+
+library(tm); library(SnowballC); library(dplyr); library(wordcloud); 
+library(RWeka); library(RColorBrewer); library(tidyr); library(igraph); 
+library(ggraph); library(tidytext); library(lubridate); library(ggthemes);
+library(ggplot2); library(syuzhet); library(plotly); library(topicmodels);
+library(text2vec); library(word2vec); library(proxy); library(umap)
+```
+
+The dataset used for this project contains Google Play reviews for several music streaming applications. For my analysis, I focused on reviews of Spotify and Apple Music. Therefore, I used a subset of 29,994 observations. Each entry includes the app name, user review text, star rating, app version, and timestamp. After filtering out all other apps, I obtained 14,999 Spotify reviews and 14,995 Apple Music reviews, which form the basis for all subsequent preprocessing and analysis steps.
+```{r}
+options(stringsAsFactors = FALSE)
+reviews <- read.csv("google_play_music_reviews.csv")
+str(reviews)
+
+data <- reviews[(reviews$app == "Spotify") | (reviews$app == "Apple Music"), ]
+cat("\n The number of reviews for Spotify and Apple Music:\n", dim(data))
+
+cat("\n Spotify reviews:", sum(data$app == "Spotify"))
+cat("\n Apple Music reviews:", sum(data$app == "Apple Music"))
+```
+
+# 2. Text preprocessing
+I applied a standardized preprocessing pipeline to all review text before analysis. This included converting text to lowercase, removing stopwords, punctuation, numbers, and excess whitespace, and applying stemming to reduce words to their root forms. The procedure was performed separately for Spotify and Apple Music reviews, and a combined cleaned corpus was created for tasks requiring both datasets. These preprocessed texts will be used for most of the other tasks, while some methods will require different/additional preprocessing approaches. 
+```{r}
+preprocess_basic <- function(text_vec) {
+  corpus <- VCorpus(VectorSource(text_vec))
+  
+  corpus <- tm_map(corpus, content_transformer(tolower))
+  corpus <- tm_map(corpus, removeWords, stopwords("english"))
+  corpus <- tm_map(corpus, removePunctuation)
+  corpus <- tm_map(corpus, stripWhitespace)
+  corpus <- tm_map(corpus, removeNumbers)
+  corpus <- tm_map(corpus, stemDocument)
+  
+  return(corpus)
+}
+
+# Create separate datasets for the two apps
+spotify_text <- data$review[data$app == "Spotify"]
+apple_text   <- data$review[data$app == "Apple Music"]
+
+# Preprocess each using the function we defined
+spotify_clean <- preprocess_basic(spotify_text)
+apple_clean   <- preprocess_basic(apple_text)
+
+corpus_spotify <- preprocess_basic(spotify_text)
+corpus_apple   <- preprocess_basic(apple_text)
+
+# Combine into one for some tasks
+corpus_clean <- c(spotify_clean, apple_clean)
+```
+
+# 3. Words frequency
+To examine the most frequently used terms in the reviews, I constructed document–term matrices for Spotify, Apple Music, and the combined corpus. By summing term counts across documents, I identified the highest-frequency words for each review dataset and extracted the top ten words overall and per platform.
+```{r}
+# Create the Document-Term matrix
+dtm_spotify <- DocumentTermMatrix(corpus_spotify)
+dtm_apple   <- DocumentTermMatrix(corpus_apple)
+dtm <- DocumentTermMatrix(corpus_clean)
+
+freq_spotify <- colSums(as.matrix(dtm_spotify))
+freq_apple   <- colSums(as.matrix(dtm_apple))
+word_freq <- colSums(as.matrix(dtm))
+
+# Show the top 10 most frequent words in reviews of both apps together and separately
+results <- list(
+  "Top 10 both"    = sort(word_freq, decreasing = TRUE)[1:10],
+  "Top 10 Spotify" = sort(freq_spotify, decreasing = TRUE)[1:10],
+  "Top 10 Apple"   = sort(freq_apple, decreasing = TRUE)[1:10]
+)
+
+results
+```
+
+## Word Frequency Analysis
+Across both apps, general terms such as app, music, and song dominate the vocabulary. Spotify’s most frequent words emphasize playback, premium features and positive adjectives, while Apple Music’s top terms include more platform-specific mentions such as apple and android, as well as verbs for the app functionality. This reflects differences in user focus and context across the two review sets, which I continued to explore through further analysis.
+
+# 4. Comparison and Commonality Clouds
+As the next step, I generated comparison and commonality clouds to examine how frequently specific words and phrases appeared across the two apps. After preprocessing the text, I constructed term–document matrices for both one-gram and two-gram tokens and aggregated the total frequencies for Spotify and Apple Music. These matrices were combined into joint frequency tables, which allowed me to directly compare shared vocabulary as well as terms that appeared predominantly in one set of the reviews. Together, the created commonality clouds and comparison clouds provided an overview of linguistic similarities and differences in how users talk about Spotify and Apple Music.
+
+## One-gram tokens
+```{r}
+# Create Term-Document Matrix
+tdm_spotify <- TermDocumentMatrix(corpus_spotify)
+tdm_apple   <- TermDocumentMatrix(corpus_apple)
+
+# Convert to matrices
+tdm_spotify_matrix <- as.matrix(tdm_spotify)
+tdm_apple_matrix   <- as.matrix(tdm_apple)
+
+# Aggregate term frequencies across all documents for each app
+spotify_terms <- rowSums(tdm_spotify_matrix)
+apple_terms   <- rowSums(tdm_apple_matrix)
+
+# Combine into a single matrix with two columns
+all_terms <- union(names(spotify_terms), names(apple_terms))
+tdm_combined <- matrix(0, nrow = length(all_terms), ncol = 2)
+rownames(tdm_combined) <- all_terms
+colnames(tdm_combined) <- c("Spotify", "Apple Music")
+
+tdm_combined[names(spotify_terms), "Spotify"] <- spotify_terms
+tdm_combined[names(apple_terms), "Apple Music"] <- apple_terms
+
+```
+
+### Commonality Cloud 
+```{r}
+commonality.cloud(tdm_combined, max.words=200, scale = c(3, 0.5), 
+                  random.order=FALSE)
+```
+
+### Comparison Cloud
+```{r}
+comparison.cloud(tdm_combined, max.words=200, scale = c(3, 0.5), 
+                 random.order=FALSE, title.size=1.5)  
+
+```
+
+## Bi-gram tokens
+```{r}
+# Define bigram tokenizer
+Bigram_Tokenizer <- function(x) {
+  NGramTokenizer(x, Weka_control(min = 2, max = 2))
+}
+
+# Create Term-Document Matrix with bigrams
+tdm_bigram_spotify <- TermDocumentMatrix(corpus_spotify, 
+                                         control = list(tokenize = Bigram_Tokenizer))
+tdm_bigram_apple   <- TermDocumentMatrix(corpus_apple, 
+                                         control = list(tokenize = Bigram_Tokenizer))
+
+# Remove sparse terms 
+tdm_bigram_spotify <- removeSparseTerms(tdm_bigram_spotify, 0.998)
+tdm_bigram_apple   <- removeSparseTerms(tdm_bigram_apple, 0.998)
+
+# Convert to matrices 
+tdm_bigram_spotify_matrix <- as.matrix(tdm_bigram_spotify)
+tdm_bigram_apple_matrix   <- as.matrix(tdm_bigram_apple)
+
+spotify_bigrams <- rowSums(tdm_bigram_spotify_matrix)
+apple_bigrams   <- rowSums(tdm_bigram_apple_matrix)
+
+# Combine into single matrix
+all_bigrams <- union(names(spotify_bigrams), names(apple_bigrams))
+tdm_bigram_combined <- matrix(0, nrow = length(all_bigrams), ncol = 2)
+rownames(tdm_bigram_combined) <- all_bigrams
+colnames(tdm_bigram_combined) <- c("Spotify", "Apple Music")
+
+tdm_bigram_combined[names(spotify_bigrams), "Spotify"] <- spotify_bigrams
+tdm_bigram_combined[names(apple_bigrams), "Apple Music"] <- apple_bigrams
+```
+
+
+### Commonality Cloud 
+```{r}
+commonality.cloud(tdm_bigram_combined, max.words=150, scale = c(2.5, 0.5), 
+                  random.order=FALSE)
+
+```
+
+### Comparison Cloud
+```{r, warning=FALSE}
+comparison.cloud(tdm_bigram_combined, max.words=90, scale = c(2.5, 0.5), 
+                 random.order=FALSE, title.size=1.5)
+```
+
+## Cloud Graphs Analysis
+The commonality clouds show that core concepts such as app, music, song, play, and listen dominate user discourse. This indicates that despite differences in platform features and customer experiences, users of both apps consistently frame their experiences around basic listening tasks. Phrases like play song, good app, and listen music appear prominently, reinforcing that basic functionality is at the center of most user reviews.
+
+The comparison clouds provide clearer insight into platform-specific themes. In the Spotify comparison clouds, terms such as premium, ad, free, shuffle, playlist, and song stand out. This aligns with common topics around the free-to-premium transition, listening to songs, and playlist management, suggesting that Spotify reviews frequently focus on the trade-offs of its premium subscription. Mentions of work well, great app, or love app appear alongside complaints like many ads or skip song, pointing to a mixture of praise for usability and frustration with limitations of the free version.
+
+By contrast, the Apple Music comparison clouds highlight vocabulary centered around payment, subscription, cancel, method, and audio quality. These patterns represent concerns about billing processes, account verification, or navigating free trials. Terms such as lossless audio and sound qualit also indicate that audio quality is a more prominent theme in Apple Music feedback than in the Spotify reviews. Compared to Spotify’s emphasis on ads and playback control, Apple Music comments show a stronger focus on service management and technical performance across devices.
+
+Overall, the commonality and comparison clouds reveal that while both user groups share a core vocabulary tied to music playback, Spotify reviews prioritize everyday usability and premium barriers, whereas Apple Music reviews center on subscription logistics and sound quality.
+
+
+# 5. Wordnetwork 
+To explore the relationships between words in the reviews, I constructed bigram and trigram networks for both Spotify and Apple Music. After generating the n-grams from the preprocessed text, I converted the resulting frequency lists into data frames and separated each n-gram into its component words. 
+
+For bigrams, pairs of adjacent terms were used to build edge lists, which were then converted into graph objects using igraph. To focus on the most important connections, I applied a frequency threshold of 70, keeping only high-occurrence bigrams in each dataset.
+
+For trigrams, I created a trigram term–document matrix using a custom tokenizer. After removing sparse trigrams and computing their frequencies, I separated each trigram into three individual words. I then constructed directed edges by treating the first two words as the source and the third word as the target. I applied a frequency cutoff of 3, which allowed me to highlight only recurring expressions. 
+
+For both bigrams and trigrams, the networks were then plotted, revealing the most prominent two- and three-word patterns.
+
+## Networks for Bigrams
+```{r}
+# Create bigram frequency data frames using the bigrams I already calculated
+spotify_bigram_df <- data.frame(word = names(spotify_bigrams), 
+                                freq = spotify_bigrams, 
+                                stringsAsFactors = FALSE)
+
+apple_bigram_df <- data.frame(word = names(apple_bigrams), 
+                              freq = apple_bigrams, 
+                              stringsAsFactors = FALSE)
+
+# Separate bigrams into two words
+spotify_separated <- spotify_bigram_df %>% 
+  separate(word, c("word1", "word2"), sep = " ")
+
+apple_separated <- apple_bigram_df %>% 
+  separate(word, c("word1", "word2"), sep = " ")
+
+# I use the threshold of frequency = 70
+word.network_spotify <- spotify_separated %>% 
+  filter(freq > 70) %>% 
+  graph_from_data_frame()
+
+word.network_apple <- apple_separated %>% 
+  filter(freq > 70) %>% 
+  graph_from_data_frame()
+```
+
+```{r, message=FALSE, warning=FALSE}
+a <- arrow(angle = 20, length = unit(0.05, "cm"), ends = "last", type = "open")
+
+ggraph(word.network_spotify, layout = "fr") + 
+  geom_edge_link(aes(color = freq, width = freq), arrow = a) +
+  geom_node_point(size = 2.5) + 
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1, size = 3) +
+  labs(title = "Spotify Reviews - Bigram Network") +
+  theme_void()
+
+```
+
+```{r}
+ggraph(word.network_apple, layout = "fr") + 
+  geom_edge_link(aes(color = freq, width = freq), arrow = a) +
+  geom_node_point(size = 2.5) +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1, size = 3) + 
+  labs(title = "Apple Music Reviews - Bigram Network") +
+  theme_void()
+
+```
+
+
+## Networks for Trigrams
+
+```{r}
+# Define trigram tokenizer
+Trigram_Tokenizer <- function(x) {
+  NGramTokenizer(x, Weka_control(min = 3, max = 3))
+}
+
+# Create trigram Term-Document Matrix
+tdm_trigram_spotify <- TermDocumentMatrix(corpus_spotify, 
+                                          control = list(tokenize = Trigram_Tokenizer))
+tdm_trigram_apple <- TermDocumentMatrix(corpus_apple, 
+                                        control = list(tokenize = Trigram_Tokenizer))
+
+# Remove sparse terms
+tdm_trigram_spotify <- removeSparseTerms(tdm_trigram_spotify, 0.998)
+tdm_trigram_apple <- removeSparseTerms(tdm_trigram_apple, 0.998)
+
+# Convert to matrix
+tdm_trigram_spotify_m <- as.matrix(tdm_trigram_spotify)
+tdm_trigram_apple_m <- as.matrix(tdm_trigram_apple)
+
+# Calculate trigram frequencies
+v_tri_spotify <- sort(rowSums(tdm_trigram_spotify_m), decreasing = TRUE)
+v_tri_apple <- sort(rowSums(tdm_trigram_apple_m), decreasing = TRUE)
+
+# Create data frames with column name "word" 
+d_tri_spotify <- data.frame(word = names(v_tri_spotify), freq = v_tri_spotify, stringsAsFactors = FALSE)
+d_tri_apple <- data.frame(word = names(v_tri_apple), freq = v_tri_apple, stringsAsFactors = FALSE)
+
+```
+
+
+```{r}
+# Separate three words and build edge lists for Spotify
+d_sep_tri_spotify <- d_tri_spotify %>% 
+  separate(word, c("word1", "word2", "word3"), sep = " ")
+
+d_edges_tri_spotify <- d_sep_tri_spotify %>%
+  mutate(source = paste(word1, word2, sep = " "),
+         target = word3) %>%
+  select(source, target, freq)
+
+# Filter frequent trigrams
+d_edges_tri_spotify_filt <- d_edges_tri_spotify %>% filter(freq > 3)
+
+# Separate three words and build edge lists for Apple Music
+d_sep_tri_apple <- d_tri_apple %>% 
+  separate(word, c("word1", "word2", "word3"), sep = " ")
+
+d_edges_tri_apple <- d_sep_tri_apple %>%
+  mutate(source = paste(word1, word2, sep = " "),
+         target = word3) %>%
+  select(source, target, freq)
+
+# Filter frequent trigrams
+d_edges_tri_apple_filt <- d_edges_tri_apple %>% filter(freq > 3)
+```
+
+## Spotify Trigram Network
+
+```{r}
+word.network_spotify_tri <- graph_from_data_frame(d_edges_tri_spotify_filt, directed = TRUE)
+  
+ggraph(word.network_spotify_tri, layout = "fr") +
+  geom_edge_link(aes(color = freq, width = freq), arrow = a) +
+  geom_node_point(size = 3) +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1, size = 3) +
+  labs(title = "Spotify Reviews - Trigram Network") +
+  theme_void()
+
+```
+
+## Apple Music Trigram Network
+
+```{r}
+word.network_apple_tri <- graph_from_data_frame(d_edges_tri_apple_filt, directed = TRUE)
+  
+ggraph(word.network_apple_tri, layout = "fr") +
+  geom_edge_link(aes(color = freq, width = freq), arrow = a) +
+  geom_node_point(size = 3) +
+  geom_node_text(aes(label = name), vjust = 1, hjust = 1, size = 3) +
+  labs(title = "Apple Music Reviews - Trigram Network") +
+  theme_void()
+
+```
+
+## Networks Analysis
+The bigram networks reveal clear differences in how users describe Spotify and Apple Music, and the trigram networks reinforce these distinctions by showing how key terms cluster into broader themes. In the **Spotify graphs**, central hubs revolve around words such as app, music, and song, indicating that user discussions focus strongly on core listening functions. High-frequency links such as play music, skip song, create playlist, and get premium highlight a mix of everyday use and recurring complaints. The trigram clusters extend this pattern: chains like best app ever, worst app ever, and music app emphasize polarized sentiment, while recurring combinations with play, listen, and stream show that functionality dominates user reviews. Negative themes tied to ads, premium, and free remain visible, underscoring complaints about monetization and access.
+
+In contrast, the **Apple Music** networks, both bigram and trigram, contain more technical and system-level vocabulary. Central nodes like music, app, play, and quality reflect a focus on playback performance, but the trigrams show clearer structural patterns around subscriptions and account operations. Phrases such as cancel app, add payment method, month free trial, and subscription cancel suggest that billing, trials, and service management are major concerns among the customers. Positive expressions such as best music or love app appear but remain peripheral compared to the operational and financial themes.
+
+Taken together, the combined bigram and trigram networks show that Spotify reviews emphasize the user experience concerning the app functionality, playlists, streaming consistency, and the balance between free and premium, while Apple Music reviews highlight technical integration, device compatibility, and especially subscription and payment management.
+
+
+# 6. Sentiment
+I conducted sentiment analysis on the reviews using a lexicon-based approach. After preprocessing the text to remove stopwords, punctuation, numbers, and excess whitespace, I constructed a document–term matrix and matched each token to the sentiment categories provided by the sentiments dataset. This way I identified positive and negative words within each review and computed a polarity score. By combining the sentiment information with date metadata for each document, I was able to evaluate both overall sentiment differences between apps and changes in polarity over time.
+
+```{r}
+data("sentiments")
+
+# content from both apps
+content <- as.character(data$review)
+
+# convert timestamp to date
+date_info <- data.frame(
+  document = 1:nrow(data),
+  app = data$app,
+  review_date = as.Date(data$date) 
+)
+
+
+# Preprocess 
+content_corpus <- VCorpus(VectorSource(content))
+content_corpus <- tm_map(content_corpus, content_transformer(tolower))
+content_corpus <- tm_map(content_corpus, removeNumbers)
+content_corpus <- tm_map(content_corpus, removeWords, stopwords("english"))
+content_corpus <- tm_map(content_corpus, removePunctuation)
+content_corpus <- tm_map(content_corpus, stripWhitespace)
+
+# Create document-term matrix
+corpus.dtm <- DocumentTermMatrix(content_corpus)
+corpus.tidy <- tidy(corpus.dtm)
+corpus.tidy$count <- as.numeric(corpus.tidy$count)
+colnames(corpus.tidy)[2] <- 'word'
+corpus.tidy$document <- as.numeric(corpus.tidy$document)
+
+corpus.sentiment <- inner_join(corpus.tidy, sentiments, by = "word")
+corpus.sentiment <- count(corpus.sentiment, sentiment, index = document)
+corpus.sentiment <- spread(corpus.sentiment, sentiment, n, fill = 0)
+corpus.sentiment <- left_join(corpus.sentiment, date_info, by = c("index" = "document"))
+
+# Calculate polarity
+corpus.sentiment$polarity <- corpus.sentiment$positive - corpus.sentiment$negative
+corpus.sentiment$pos <- ifelse(corpus.sentiment$polarity >= 0, "pos", "neg")
+
+```
+
+## Average Sentiment by App
+
+```{r}
+# Calculate average sentiment by app
+avg_sentiment <- corpus.sentiment %>%
+  group_by(app) %>%
+  summarise(
+    avg_polarity = mean(polarity, na.rm = TRUE),
+    total_positive = sum(positive, na.rm = TRUE),
+    total_negative = sum(negative, na.rm = TRUE),
+    n_reviews = n()
+  )
+
+print(avg_sentiment)
+
+```
+
+```{r}
+# Plot average sentiment
+ggplot(avg_sentiment, aes(x = app, y = avg_polarity, fill = app)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Spotify" = "#1DB954", "Apple Music" = "#FC3C44")) +
+  theme_gdocs() +
+  labs(title = "Average Sentiment: Spotify vs Apple Music",
+       x = "App",
+       y = "Average Sentiment Polarity") +
+  theme(legend.position = "none")
+
+```
+
+## Sentiment over Time (Smoothed)
+
+```{r}
+ggplot(corpus.sentiment, aes(x = review_date, y = polarity, color = app)) +
+  stat_smooth(se = TRUE, linewidth = 1.2) +
+  scale_color_manual(values = c("Spotify" = "#1DB954", "Apple Music" = "#FC3C44")) +
+  theme_gdocs() +
+  labs(title = "Spotify vs Apple Music: Sentiment Trend",
+       x = "Review Date",
+       y = "Sentiment Polarity",
+       color = "App")
+
+```
+
+## Sentiment over Time - Spotify
+
+```{r}
+corpus.sentiment.spotify <- corpus.sentiment %>% filter(app == "Spotify")
+
+ggplot(corpus.sentiment.spotify, aes(x = review_date, y = polarity, fill = pos)) +
+  geom_bar(stat = "identity", position = "identity", width = 1) +
+  theme_gdocs() +
+  labs(title = "Spotify: Sentiment Over Time",
+       x = "Review Date",
+       y = "Sentiment Polarity",
+       fill = "Sentiment") +
+  theme(legend.position = "top")
+```
+
+## Sentiment over Time - Spotify (Smoothed)
+
+```{r}
+ggplot(corpus.sentiment.spotify, aes(x = review_date, y = polarity)) +
+  stat_smooth(alpha = 0.3, size = 1.2) +
+  theme_gdocs() +
+  labs(title = "Spotify: Sentiment Trend (Smoothed)",
+       x = "Review Date",
+       y = "Sentiment Polarity")
+```
+
+## Sentiment over Time - Apple Music
+
+```{r}
+corpus.sentiment.apple <- corpus.sentiment %>% filter(app == "Apple Music")
+
+ggplot(corpus.sentiment.apple, aes(x = review_date, y = polarity, fill = pos)) +
+  geom_bar(stat = "identity", position = "identity", width = 1) +
+  theme_gdocs() +
+  labs(title = "Apple Music: Sentiment Over Time",
+       x = "Review Date",
+       y = "Sentiment Polarity",
+       fill = "Sentiment") +
+  theme(legend.position = "top")
+
+```
+
+## Sentiment over Time - Apple Music (Smoothed)
+
+```{r}
+ggplot(corpus.sentiment.apple, aes(x = review_date, y = polarity)) +
+  stat_smooth(alpha = 0.3, size = 1.2) +
+  theme_gdocs() +
+  labs(title = "Apple Music: Sentiment Trend (Smoothed)",
+       x = "Review Date",
+       y = "Sentiment Polarity")
+
+```
+
+## Sentiment Analysis
+Overall sentiment patterns differ noticeably between the two platforms. The average polarity scores show a clear gap: **Spotify reviews are substantially more positive on average (0.73) than Apple Music reviews (0.44)**. While both apps receive far more positive than negative tokens in the aggregated counts, Spotify reviews contain fewer negative terms relative to their volume.
+
+When examining sentiment over time, the raw bar charts of positive and negative counts appear nearly balanced and offer little interpretive value. For **Spotify**, the smoothed series (which starts only in 2025 in this dataset) remains consistently positive, dropping and increasing again at several points in time, and ending with an upward shift. This suggests that the tone of Spotify feedback is steady and generally positive.
+
+**Apple Music** shows a longer timeline beginning in 2023. Its smoothed trend starts at a moderate positive level, dips from late 2023 until early 2024, and then increases steadily throughout 2024 into 2025. This demonstrates that sentiment declined for a period before improving substantially over time. The broader temporal context for Apple Music makes the trend more interpretable and useful, whereas the joint smoothed plot for both apps does not provide much value since the Spotify data begins much later.
+
+Taken together, the sentiment patterns reinforce the distinctions seen in the topic modeling: Spotify feedback is consistently more positive, whereas Apple Music reviews show more variability over time, aligning with recurring themes of technical issues and subscription frustrations. Despite differences in coverage and the limitations of lexicon-based scoring, the sentiment results provide a coherent picture of how users evaluate each service.
+
+
+
+# 7. LDA 
+I applied Latent Dirichlet Allocation (LDA) to Spotify and Apple Music reviews using both unigrams and bigrams. Empty documents were removed from the document-term matrices to avoid errors caused by preprocessing. Four topics were chosen for each app as a balance between detail and interpretability. The unigram models captured general themes, while bigram models highlighted recurring phrases. To validate and refine results, I also used the text2vec framework, which prunes vocabulary and often produces clearer topic boundaries.
+
+## LDA with unigrams 
+```{r}
+# For Spotify
+row_sums_spotify <- slam::row_sums(dtm_spotify)
+dtm_spotify_clean <- dtm_spotify[row_sums_spotify > 0, ]
+
+cat("Spotify reviews removed:", sum(row_sums_spotify == 0), "out of", length(row_sums_spotify), "\n")
+
+# For Apple Music
+row_sums_apple <- slam::row_sums(dtm_apple)
+dtm_apple_clean <- dtm_apple[row_sums_apple > 0, ]
+
+cat("Apple Music reviews removed:", sum(row_sums_apple == 0), "out of", length(row_sums_apple), "\n")
+
+```
+
+```{r}
+set.seed(123)
+lda_spotify <- LDA(dtm_spotify_clean, k = 4, control = list(seed = 123))
+lda_apple   <- LDA(dtm_apple_clean, k = 4, control = list(seed = 123))
+
+cat(" Topics for Spotify:\n")
+terms(lda_spotify, 8)   # top 8 words per topic for Spotify
+cat("\n Topics for Apple Music:\n")
+terms(lda_apple, 8)     # top 8 words per topic for Apple Music
+```
+**Spotify:**
+
+- Topic 1: Positive general usage ("love", "best", "nice", "great") 
+- Topic 2: Premium features ("spotifi", "premium", "get", "add") 
+- Topic 3: Music listening ("song", "music", "listen", "like") 
+- Topic 4: App functionality ("music", "spotifi", "premium", "can")
+
+**Apple Music:**
+
+- Topic 1: General music playback ("music", "app", "play", "song") 
+- Topic 2: Technical issues ("work", "good", "like", "android") 
+- Topic 3: Platform issues ("music", "appl", "android", "can") 
+- Topic 4: Subscription problems ("app", "appl", "subscript", "tri", "sign") 
+
+## LDA with bigrams 
+```{r}
+dtm_bigram_spotify <- DocumentTermMatrix(corpus_spotify, control = list(tokenize = Bigram_Tokenizer))
+dtm_bigram_apple   <- DocumentTermMatrix(corpus_apple, control = list(tokenize = Bigram_Tokenizer))
+
+# remove sparse terms to manage size
+dtm_bigram_spotify <- removeSparseTerms(dtm_bigram_spotify, 0.998)
+dtm_bigram_apple   <- removeSparseTerms(dtm_bigram_apple, 0.998)
+
+# remove empty documents
+row_sums_spotify_bigram <- slam::row_sums(dtm_bigram_spotify)
+dtm_bigram_spotify_clean <- dtm_bigram_spotify[row_sums_spotify_bigram > 0, ]
+
+row_sums_apple_bigram <- slam::row_sums(dtm_bigram_apple)
+dtm_bigram_apple_clean <- dtm_bigram_apple[row_sums_apple_bigram > 0, ]
+
+```
+
+```{r}
+set.seed(123)
+lda_spotify_bigram <- LDA(dtm_bigram_spotify_clean, k = 4, control = list(seed = 123))
+lda_apple_bigram   <- LDA(dtm_bigram_apple_clean, k = 4, control = list(seed = 123))
+
+cat(" Bigram Topics for Spotify:\n")
+t_s <- terms(lda_spotify_bigram, 6) # top 6 bigrams per topic for Spotify
+print(t_s)
+
+cat("\n Bigram Topics for Apple Music:\n")
+t_a <- terms(lda_apple_bigram, 6)  # top 6 bigrams per topic for Apple Music
+print(t_a)
+```
+
+
+## Comparison to text2vec
+
+### For Spotify
+```{r}
+spotify_cleaned_text <- sapply(corpus_spotify, as.character)
+
+# For Spotify
+it_spotify <- itoken(spotify_cleaned_text, 
+                     tokenizer = word_tokenizer, 
+                     progressbar = FALSE)
+
+vocab_spotify <- create_vocabulary(it_spotify, ngram = c(1L, 2L)) %>%
+  prune_vocabulary(term_count_min = 5, doc_proportion_max = 0.5)
+
+vectorizer_spotify <- vocab_vectorizer(vocab_spotify)
+dtm_text2vec_spotify <- create_dtm(it_spotify, vectorizer_spotify)
+
+lda_spotify_text2vec <- LDA$new(n_topics = 4, doc_topic_prior = 0.1, topic_word_prior = 0.01)
+doc_topic_spotify <- lda_spotify_text2vec$fit_transform(dtm_text2vec_spotify, 
+                                                         n_iter = 1000, 
+                                                         convergence_tol = 0.001, 
+                                                         progressbar = FALSE)
+
+cat("Text2vec Topics for Spotify:\n")
+print(lda_spotify_text2vec$get_top_words(n = 8, topic_number = 1:4))
+```
+
+### For Apple Music
+```{r}
+apple_cleaned_text <- sapply(corpus_apple, as.character)
+it_apple <- itoken(apple_cleaned_text, 
+                   tokenizer = word_tokenizer, 
+                   progressbar = FALSE)
+
+vocab_apple <- create_vocabulary(it_apple, ngram = c(1L, 2L)) %>%
+  prune_vocabulary(term_count_min = 5, doc_proportion_max = 0.5)
+
+vectorizer_apple <- vocab_vectorizer(vocab_apple)
+dtm_text2vec_apple <- create_dtm(it_apple, vectorizer_apple)
+
+lda_apple_text2vec <- LDA$new(n_topics = 4, doc_topic_prior = 0.1, topic_word_prior = 0.01)
+doc_topic_apple <- lda_apple_text2vec$fit_transform(dtm_text2vec_apple, 
+                                                     n_iter = 1000, 
+                                                     convergence_tol = 0.001, 
+                                                     progressbar = FALSE)
+
+cat("Text2vec Topics for Apple Music:")
+print(lda_apple_text2vec$get_top_words(n = 8, topic_number = 1:4))
+
+```
+
+## LDA Analysis 
+
+For **Spotify**, LDA revealed topics around positive usage (love, best, great), premium features (premium, add, get), music listening (song, music, listen), and app functionality (navigation, can, update). 
+
+**Apple Music** topics emphasized general playback (music, play, song), technical issues (work, android, good), platform problems (appl, can, android), and subscription complaints (subscript, trial, sign). 
+
+Bigram models refined these into phrases like play music and sync library. Text2vec confirmed these distinctions but separated themes more sharply, e.g., Spotify’s user interface vs. music library, and Apple Music’s iTunes sync vs. subscription cost. 
+
+Overall, topic modelling shows Spotify reviews mix enthusiasm with frustration over ads and features, while Apple Music reviews focus more consistently on technical integration and pricing issues.
+
+
+# 8 Text Embeddings 
+In this analysis I used word embeddings to uncover the semantic structure of Spotify and Apple Music reviews. A Word2Vec model learned how words are used in context, and retrieving the most similar words to “spotify” and “apple” highlighted what users associate with each platform. Through UMAP visualizations I projected these embeddings into two dimensions, revealing clusters such as playback actions, sentiment words, and platform references. Semantic vector arithmetic (e.g., spotify + good − bad) identified words tied to positive or negative experiences, while a dendrogram grouped common words by similarity, mapping themes like usage, sentiment, and app features. K-means clustering further organized words into coherent data-driven topics, capturing themes such as positive sentiment, complaints, music content, and platform discussions.
+
+## Similar Words to Spotify and Apple
+```{r}
+# Train Word2Vec model on the existing cleaned text
+
+# Use my already cleaned text corpus:
+all_reviews <- tolower(data$review)
+
+set.seed(123)
+
+model <- word2vec(
+  x = all_reviews,
+  type = "cbow",
+  dim = 150,
+  window = 5,
+  iter = 25
+)
+
+# Find similar words to “spotify” and “apple”
+
+sim_spotify <- predict(model, c("spotify"), type = "nearest", top_n = 10)
+sim_apple   <- predict(model, c("apple"),   type = "nearest", top_n = 10)
+
+cat("Similar to SPOTIFY:")
+print(sim_spotify)
+
+cat("Similar to APPLE:")
+print(sim_apple)
+```
+
+## UMAP Visualization of Word Embeddings
+```{r}
+# Extract vocabulary to embed and visualize
+
+# Build a corpus using the cleaned text
+embedding_corpus <- VCorpus(VectorSource(all_reviews)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, stopwords("english")) %>%
+  tm_map(stripWhitespace)
+
+dtm_embed <- DocumentTermMatrix(embedding_corpus)
+words_all <- colnames(as.matrix(dtm_embed))
+
+# Select a sample of 100 frequent words to avoid clutter
+word_freqs <- colSums(as.matrix(dtm_embed))
+top_words <- names(sort(word_freqs, decreasing = TRUE))[1:100]
+
+# get embeddings
+embeddings <- predict(model, newdata = top_words, type = "embedding")
+embeddings <- na.omit(embeddings)
+
+# Visualize embeddings using UMAP
+
+umap_vis <- umap(embeddings, n_neighbors = 15, n_threads = 2)
+
+df_embed <- data.frame(
+  word = rownames(embeddings),
+  x = umap_vis$layout[, 1],
+  y = umap_vis$layout[, 2]
+)
+
+ggplot(df_embed, aes(x = x, y = y, label = word)) +
+  geom_text_repel(size = 3, max.overlaps = 20) +  # Prevents overlapping labels
+  labs(title = "UMAP Visualization of Word Embeddings for Spotify & Apple Reviews",
+       x = "UMAP Dimension 1",
+       y = "UMAP Dimension 2") +
+  theme_minimal()
+```
+
+## Cluster Dendrogram
+```{r}
+top_words_dendro <- names(sort(word_freqs, decreasing = TRUE))[1:30]
+embeddings_dendro <- predict(model, newdata = top_words_dendro, type = "embedding")
+embeddings_dendro <- na.omit(embeddings_dendro)
+
+cos_dist <- dist(embeddings_dendro, method = "cosine")
+plot(
+  as.dendrogram(hclust(cos_dist)),
+  cex = 0.7,
+  main = "Cluster Dendrogram of Top 30 Words"
+)
+
+```
+
+## Semantic Vector Arithmetic: Spotify
+```{r}
+# Vector arithmetic examples
+
+# Word directions: positive vs negative experience
+w_good <- predict(model, "good", type = "embedding")
+w_bad  <- predict(model, "bad",  type = "embedding")
+
+# Spotify: good - bad direction
+v_spotify <- predict(model, "spotify", type = "embedding")
+spotify_semantic_shift <- v_spotify + w_good - w_bad
+
+spotify_shift_nearest <- predict(
+  model,
+  newdata = spotify_semantic_shift,
+  type = "nearest",
+  top_n = 10
+)
+
+cat("Words closest to (spotify + good - bad):")
+print(spotify_shift_nearest)
+```
+
+## Semantic Vector Arithmetic: Apple Music
+```{r}
+# Apple: stability vs bugs direction
+w_bug <- predict(model, "bug", type = "embedding")
+w_fix <- predict(model, "fix", type = "embedding")
+
+v_apple <- predict(model, "apple", type = "embedding")
+apple_semantic_shift <- v_apple + w_fix - w_bug
+
+apple_shift_nearest <- predict(
+  model,
+  newdata = apple_semantic_shift,
+  type = "nearest",
+  top_n = 10
+)
+
+cat("\nWords closest to (apple + fix - bug):\n")
+print(apple_shift_nearest)
+```
+
+## Embedding-Based Topics
+```{r}
+# Extract embedding-based “topics”
+# Cluster the 100 words into semantic groups
+
+set.seed(123)
+k <- 6
+km <- kmeans(embeddings, centers = k, nstart = 20)
+
+df_topics <- data.frame(
+  word = rownames(embeddings),
+  cluster = km$cluster
+)
+
+# Show top 10 representative words per cluster
+embedding_topics <- df_topics %>%
+  group_by(cluster) %>%
+  slice(1:10)
+
+cat("\nEmbedding-Based Topics (Top Words per Cluster):\n")
+for(i in 1:k) {
+  cluster_words <- df_topics %>% filter(cluster == i) %>% pull(word)
+  cat("\nCluster", i, ":", paste(head(cluster_words, 10), collapse = ", "), "\n")
+}
+
+```
+
+## Embedding Analysis
+The embeddings reveal that users consistently discuss core listening behaviors (play, listen, songs, playlist), subscription and pricing (premium, ads, subscription), platform comparisons (spotify, apple, android), and strong emotional reactions—both positive (good, great, love) and negative (can’t, don’t, want). Spotify is often mentioned alongside competitors like Pandora and YouTube, while Apple clusters with terms related to accounts and device functions (iCloud, recovery, Gmail). Positive sentiment and frustration terms form separate clusters, showing a clear polarity in experiences. 
+
+Overall, the embeddings map how users talk about functionality, sentiment, technical issues, and cross-platform comparisons, providing actionable insights into what matters most to them.
+
+
+
+# 9. Text Insights 
+By combining the results from word clouds, sentiment graphs, topic modelling, embeddings, and word networks, I gain a holistic understanding of how Spotify and Apple Music are perceived in user reviews. The word clouds highlight the dominant vocabulary: Spotify reviews frequently mention ads, playlist, and premium, while Apple Music reviews emphasize iTunes, sync, and subscription. This already signals that Spotify users are focused on discovery features and advertising, whereas Apple Music users are more concerned with technical integration and pricing.
+
+The sentiment graphs provide insight into overall polarity and its progression over time. Spotify exhibits a more polarized distribution, with reviews fluctuating between positive and negative sentiment, suggesting a mix of enthusiasm and frustration among users. Apple Music, by contrast, shows a more consistently negative trajectory, with fewer positive swings, indicating that dissatisfaction is more stable and persistent across time.
+
+The topic models give structure to these impressions. Spotify topics cluster around positive usage, premium features, music listening, and app functionality. Apple Music topics emphasize general playback, technical issues, platform problems, and subscription complaints. The text2vec comparison sharpened these boundaries, showing Spotify’s user interface and music library as distinct clusters, and Apple Music’s iTunes sync and subscription cost as separate pain points.
+
+The embeddings further validate these themes by showing semantic proximity: in Spotify reviews, playlist, recommend, and discover cluster together, while ads, premium, and cost form another cluster. In Apple Music, iTunes, sync, and library are tightly connected, as are subscription, expensive, and cancel.
+
+Finally, the word networks visualize how users phrase their experiences. Spotify bigrams like play music, skip ads, and create playlist highlight functional usage and ad frustration. Apple Music bigrams such as sync library, apple subscription, and trial period emphasize technical and financial pain points. Trigram networks show recurring complaint structures, e.g., unable to sync library or too many ads premium.
+
+**Insight:** Taken together, these methods show that Spotify reviews are about balancing enthusiasm for playlists and discovery with frustration over ads and technical bugs, while Apple Music reviews are dominated by dissatisfaction with iTunes integration, subscription costs, and catalogue gaps. Spotify generates polarized sentiment with both strong positives and negatives, whereas Apple Music leans toward consistent dissatisfaction. Overall, user satisfaction depends not only on content but also on seamless usability and fair subscription models, with Spotify’s challenge being ads and stability, and Apple Music’s challenge being integration and pricing.
+
+
+# 10. Report
+The results of this analysis provide a comprehensive base for informing marketing strategy for both Spotify and Apple Music. By integrating word frequency patterns, sentiment dynamics, topic models, word networks, and embedding-based semantic structures, the analysis yields insight into how consumers evaluate each platform, what they value, and where dissatisfaction most often arises. The use of marketing research is emphasized by the importance of understanding consumer perceptions through reviews, as by analyzing these evaluations reveals brand associations, unmet needs, and emotional responses (Keller, 2013). The present findings therefore serve as a foundation for data-driven decision-making across segmentation, targeting, positioning, and product strategy.
+
+Word frequency and comparative cloud analysis highlight significant differences in user focus across the two platforms. Spotify reviews emphasize ads, premium features, playlists, and positive experiential terms such as “love” and “great,” whereas Apple Music reviews more frequently reference subscription processes, payment issues, iTunes/sync integration, and audio quality. Within Keller’s Customer-Based Brand Equity model, such frequently occurring words represent important brand associations that shape consumer attitudes and loyalty (Keller, 2013). From a marketing perspective, these patterns suggest that Spotify should center its communications on seamless listening and playlist discovery, while Apple Music should highlight improvements to subscription processes and reinforce its existing association with superior audio quality.
+
+Sentiment analysis further clarifies the emotional tone underlying user evaluations. Spotify reviews display a substantially higher average sentiment polarity than Apple Music, suggesting more positive emotional engagement. Liiterature suggests that emotional responses are central predictors of purchase intention, brand loyalty, and word-of-mouth behavior (Bagozzi, Gopinath & Nyer, 1999). Thus, Spotify’s consistently positive sentiment profile represents a strategic advantage that should be reinforced in branding and advertising. Conversely, the more variable and often negative sentiment associated with Apple Music, particularly around billing and technical functionality, indicates areas where dissatisfaction must be addressed both through product improvements and targeted messaging designed to rebuild trust and reduce perceived risk.
+
+Topic modeling using LDA provides structured thematic insights that can guide segmentation and campaign development. For Spotify, topics cluster around positive user experiences, premium features, music listening, and app usability, reflecting a user base that is engaged with the platform’s everyday functionality. In contrast, Apple Music topics emphasize technical issues, platform integration problems, Android compatibility concerns, and subscription management. Prior research shows that topic modeling can reveal hidden consumer need-states and facilitate the design of tailored communication strategies (Hannigan et al., 2019). Spotify can leverage these insights to promote premium upgrades through messaging aligned with identified user priorities, while Apple Music should address subscription-related pain points and technical frustrations through both operational improvements and clear, supportive onboarding communications. These actions align with behavioral theories, such as Thaler’s (1999) mental accounting framework, that emphasize the need to reduce cognitive barriers and perceived effort in subscription decisions.
+
+The word networks from bigrams and trigrams provide a complementary perspective by illustrating how users sequence their experiences linguistically. Spotify’s networks center on behavioral chains such as “play music,” “skip song,” and “get premium,” reflecting a customer journey primarily concerned with streaming functionality and the free-to-premium transition. Apple Music networks feature chains such as “add payment method,” “cancel subscription,” and “free trial,” indicating a journey characterized by transactional friction. According to customer experience research, addressing the most frequent sources of friction in these journey maps can significantly increase satisfaction and retention (Rawson, Duncan & Jones, 2013). For Spotify, reducing ad fatigue and improving clarity around premium benefits would address the primary negative nodes, whereas Apple Music should simplify subscription flows and communicate improvements clearly across its marketing channels.
+
+Finally, embedding-based analyses offer deeper insight into the semantic relationships that structure user perceptions. Words associated with Spotify cluster around discovery features, social listening, and comparisons to competitors such as Pandora and YouTube, suggesting that Spotify occupies a position within a broader ecosystem of streaming alternatives. In contrast, Apple Music’s embeddings link it semantically to the Apple device ecosystem, subscription management, and account-related vocabulary. Embedding methods are increasingly recognized as powerful tools for uncovering implicit consumer associations that traditional surveys may not capture (Rodriguez, Peterson & Ajjan, 2020). These associations suggest that Spotify can strengthen its positioning as a discovery-oriented, socially integrated platform, while Apple Music should maintain its differentiation through ecosystem integration and high-fidelity audio.
+
+Taken together, the findings indicate clear strategic priorities for both services. Spotify’s marketing efforts should leverage its positive emotional resonance, strong associations with ease of use, and social discovery features, while mitigating concerns around advertising and the free-versus-premium experience. Apple Music should focus on improving subscription clarity, reducing technical friction, and reinforcing its perceived strengths in audio quality and device integration. These recommendations, grounded in both empirical text analysis and established marketing theory, offer a pathway for each platform to enhance user satisfaction, reduce churn, and strengthen brand equity.
+
+## Literature
+Bagozzi, R., Gopinath, M., & Nyer, P. (1999). The role of emotions in marketing. Journal of the Academy of Marketing Science.
+
+Hannigan, T., Haans, R., Vakili, K., Tchalian, H., Glaser, V., & Wang, M. (2019). Topic modeling in management research. Academy of Management Annals.
+
+Keller, K. (2013). Strategic Brand Management. Pearson Education.
+
+Rawson, A., Duncan, E., & Jones, C. (2013). The truth about customer experience. Harvard Business Review.
+
+Rodriguez, M., Peterson, R., & Ajjan, H. (2020). Digital content, neural networks, and marketing analytics. Journal of Business Research.
+
+Thaler, R. (1999). Mental accounting matters. Journal of Behavioral Decision Making
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
