@@ -21,17 +21,24 @@ marketing insights.
 
 The analysis covers **29,994 Google Play reviews** (14,999 Spotify, 14,995 Apple Music).
 
-**Spotify reviews are clearly more positive.** Among reviews that contain sentiment words, the average net sentiment (positive minus negative words) is **0.73 for Spotify vs. 0.44 for Apple Music**. Apple Music reviews contain 9,160 negative sentiment words against 6,055 for Spotify, from a similar number of reviews.
+**Users talk about different things.** The bigram comparison cloud shows the phrases that are most distinctive for each app. Spotify reviews focus on everyday use and the free-to-premium trade-off (premium, ads, songs, playlists), while Apple Music reviews focus on subscription logistics (payment method, cancelling subscriptions, free trials), sound quality and device compatibility.
 
-<img src="assets/average_sentiment.png" alt="Average sentiment polarity: Spotify vs Apple Music" width="520">
+<img src="assets/comparison_cloud.png" alt="Bigram comparison cloud of Spotify vs Apple Music reviews" width="520">
 
-**Users talk about different things.** The comparison cloud shows the terms that are most distinctive for each app: Spotify reviews centre on songs, playlists, premium and ads, while Apple Music reviews centre on payment, subscriptions, Apple ID, Android compatibility and audio quality.
+**Topic modelling (LDA) confirms these themes:**
 
-<img src="assets/comparison_cloud.png" alt="Comparison word cloud of Spotify vs Apple Music reviews" width="520">
+| Spotify topics | Apple Music topics |
+|---|---|
+| Positive usage (*love, best, great*) | General playback (*music, play, song*) |
+| Premium features (*premium, add, get*) | Technical issues (*work, android*) |
+| Music listening (*song, music, listen*) | Platform problems (*apple, android*) |
+| App functionality (*navigation, update*) | Subscription complaints (*subscription, trial, sign*) |
+
+**Spotify reviews are more positive.** Among reviews that contain sentiment words, the average net sentiment (positive minus negative words) is **0.73 for Spotify vs. 0.44 for Apple Music**.
 
 **Marketing recommendations derived from the analysis:**
--   **Spotify:** build communication around playlist discovery and ease of use, and reduce ad fatigue by making the benefits of Premium clearer
--   **Apple Music:** simplify subscription and payment flows, fix Android and sync friction, and lean on its strengths in audio quality and device integration
+-   **Spotify:** build on users' positive emotional connection, ease of use and discovery features such as playlists, while reducing ad fatigue and making the benefits of Premium clearer to ease the free-to-premium transition
+-   **Apple Music:** simplify subscription and payment processes, reduce technical friction and use clear, supportive communication to rebuild trust, while reinforcing its strengths in audio quality and integration with Apple devices
 
 ## 📂 Project Structure
 
