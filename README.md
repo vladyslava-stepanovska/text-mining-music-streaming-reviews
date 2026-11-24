@@ -25,14 +25,7 @@ The analysis covers **29,994 Google Play reviews** (14,999 Spotify, 14,995 Apple
 
 <img src="assets/comparison_cloud.png" alt="Bigram comparison cloud of Spotify vs Apple Music reviews" width="520">
 
-**Topic modelling (LDA) confirms these themes:**
-
-| Spotify topics | Apple Music topics |
-|---|---|
-| Positive usage (*love, best, great*) | General playback (*music, play, song*) |
-| Premium features (*premium, add, get*) | Technical issues (*work, android*) |
-| Music listening (*song, music, listen*) | Platform problems (*apple, android*) |
-| App functionality (*navigation, update*) | Subscription complaints (*subscription, trial, sign*) |
+**Topic modelling (LDA on bigrams) confirms these themes:** Apple Music topics contain phrases such as *payment method*, *cancel subscription* and *sound quality*, while Spotify topics contain *many ads* and *buy premium* alongside positive phrases such as *love Spotify*.
 
 **Spotify reviews are more positive.** Among reviews that contain sentiment words, the average net sentiment (positive minus negative words) is **0.73 for Spotify vs. 0.44 for Apple Music**.
 
@@ -77,7 +70,7 @@ Google Play Store reviews for music streaming apps, sourced from Kaggle:
 -   Spotify reviews emphasize **ads, playlists, and discovery
     features**, with more polarized sentiment
 -   Apple Music reviews focus on **iTunes integration, subscription
-    costs, and technical issues**, with consistently more negative
+    costs, and technical issues**, with consistently less positive
     sentiment
 -   LDA and embedding analyses uncover distinct user pain points for
     each platform
