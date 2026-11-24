@@ -1,0 +1,4 @@
+# Show these repos as R projects: the knitted HTML report is generated,
+# and .Rmd files are counted as R code
+analysis.html linguist-generated=true
+*.Rmd linguist-language=R linguist-detectable=true

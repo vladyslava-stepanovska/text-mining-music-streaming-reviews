@@ -1,4 +1,5 @@
 ---
+pagetitle: "Spotify vs Apple Music — Review Analysis"
 output:
   html_document:
     toc: true
@@ -18,8 +19,6 @@ output:
 
 
 # Introduction 
-This project explores the differences between the reviews of several music streaming apps. The main focus is on comparing Apple Music and Spotify. 
-
 This project explores the differences between the reviews of several music streaming apps, with a focus on comparing **Apple Music** and **Spotify**. Using Google Play review data, I examine how users talk about each app through a series of text-analysis steps. The project includes preprocessing the review text, analyzing word frequencies, generating word clouds, building word networks, comparing sentiment patterns, and extracting topics using both LDA and text embeddings.
 
 By combining insights from these methods, I aim to uncover meaningful differences in how users perceive the two platforms and to translate these findings into valuable marketing insights.
